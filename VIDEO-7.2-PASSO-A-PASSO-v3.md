@@ -337,16 +337,19 @@ O workflow será criado em `.github/workflows/ai-log-analysis.yml` e vai:
 2. Analisar logs com Gemini API
 3. Criar issue se encontrar problemas críticos
 
-### Preview do Workflow
+### Passo 6: Criar Workflow CI/CD
 
-```yaml
+**Mac/Linux:**
+```bash
+# Criar diretório e arquivo workflow
+mkdir -p .github/workflows
+
+cat > .github/workflows/ai-log-analysis.yml << 'EOF'
 name: 🤖 AI Log Analysis
 
 on:
-  # Rodar a cada 6 horas
   schedule:
     - cron: '0 */6 * * *'
-  # Ou manualmente
   workflow_dispatch:
 
 jobs:
@@ -368,13 +371,36 @@ jobs:
           cd aula07-ia-logs
           python analyze_logs_ci.py
       
+      - name: 📋 Ver resultado da análise
+        run: |
+          cd aula07-ia-logs
+          echo "Resultado da análise:"
+          cat log-analysis.json
+      
       - name: 🚨 Criar issue se crítico
         if: failure()
         uses: actions/github-script@v7
         with:
           script: |
-            // Criar issue automaticamente
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Problema crítico detectado nos logs',
+              body: 'A análise de logs detectou um problema crítico. Verifique o workflow.'
+            })
+EOF
 ```
+
+**Windows (PowerShell):**
+```powershell
+# Criar diretório
+New-Item -ItemType Directory -Force -Path ".github/workflows"
+
+# Criar arquivo (copiar conteúdo YAML acima manualmente)
+notepad .github/workflows/ai-log-analysis.yml
+```
+
+> 💡 **Lembre-se:** Adicione `GEMINI_API_KEY` nos secrets do repositório!
 
 ---
 

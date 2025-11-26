@@ -487,13 +487,17 @@ O workflow vai integrar **detecção (7.2) + resposta (7.3)**:
 2. Se encontrar problema crítico → executar runbook
 3. Criar issue no GitHub com resultado
 
-### Preview do Workflow
+### Passo 8: Criar Workflow CI/CD
 
-```yaml
+**Mac/Linux:**
+```bash
+# Criar diretório e arquivo workflow
+mkdir -p .github/workflows
+
+cat > .github/workflows/ai-incident-response.yml << 'EOF'
 name: 🤖 AI Incident Response
 
 on:
-  # Acionado manualmente ou por webhook
   workflow_dispatch:
     inputs:
       alert_file:
@@ -513,7 +517,6 @@ jobs:
       
       - run: pip install requests
       
-      # Usa versão CI com Gemini API (não Ollama!)
       - name: 🤖 Executar resposta automática
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -521,12 +524,38 @@ jobs:
           cd aula07-ia-incident
           python incident_handler_ci.py ${{ inputs.alert_file }}
       
+      - name: 📋 Ver resultado do incidente
+        run: |
+          cd aula07-ia-incident
+          echo "Resultado do incidente:"
+          cat incident-result.json
+          echo ""
+          echo "Histórico de incidentes:"
+          cat logs/incidents.log
+      
       - name: 📝 Criar issue com resultado
         if: always()
         uses: actions/github-script@v7
         with:
           script: |
-            // Criar issue com resultado do incidente
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('aula07-ia-incident/incident-result.json', 'utf8'));
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Incidente ${result.status}: ${result.incident_type}`,
+              body: `**Alerta:** ${result.alert_id}\n**Runbook:** ${result.runbook_executed}\n**Status:** ${result.status}`
+            })
+EOF
+```
+
+**Windows (PowerShell):**
+```powershell
+# Criar diretório
+New-Item -ItemType Directory -Force -Path ".github/workflows"
+
+# Criar arquivo (copiar conteúdo YAML acima manualmente)
+notepad .github/workflows/ai-incident-response.yml
 ```
 
 > 💡 **Importante:** No CI usamos `incident_handler_ci.py` (Gemini), não a versão local!

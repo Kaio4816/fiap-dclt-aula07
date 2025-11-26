@@ -1,0 +1,46 @@
+name: 🤖 AI Test Selection
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smart-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Instalar dependências
+        run: |
+          cd aula07-ia-testes
+          pip install -r requirements.txt
+      
+      - name: 🤖 Selecionar testes com IA
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cd aula07-ia-testes
+          python select_tests_ci.py
+      
+      - name: 📋 Ver testes sugeridos
+        run: |
+          cd aula07-ia-testes
+          echo "Testes sugeridos:"
+          cat suggested_tests.txt
+      
+      - name: 🧪 Rodar testes selecionados
+        run: |
+          cd aula07-ia-testes
+          if [ -s suggested_tests.txt ]; then
+            pytest $(cat suggested_tests.txt) -v
+          else
+            echo "Nenhum teste para rodar"
+          fi

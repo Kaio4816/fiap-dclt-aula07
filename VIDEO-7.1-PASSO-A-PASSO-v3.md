@@ -425,9 +425,14 @@ O workflow será criado em `.github/workflows/ai-tests.yml` e vai:
 2. Chamar Gemini API para sugerir testes
 3. Rodar apenas os testes sugeridos
 
-### Preview do Workflow
+### Passo 12: Criar Workflow CI/CD
 
-```yaml
+**Mac/Linux:**
+```bash
+# Criar diretório e arquivo workflow
+mkdir -p .github/workflows
+
+cat > .github/workflows/ai-tests.yml << 'EOF'
 name: 🤖 AI Test Selection
 
 on:
@@ -442,7 +447,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Para git diff funcionar
+          fetch-depth: 2
       
       - uses: actions/setup-python@v4
         with:
@@ -460,6 +465,12 @@ jobs:
           cd aula07-ia-testes
           python select_tests_ci.py
       
+      - name: 📋 Ver testes sugeridos
+        run: |
+          cd aula07-ia-testes
+          echo "Testes sugeridos:"
+          cat suggested_tests.txt
+      
       - name: 🧪 Rodar testes selecionados
         run: |
           cd aula07-ia-testes
@@ -468,6 +479,16 @@ jobs:
           else
             echo "Nenhum teste para rodar"
           fi
+EOF
+```
+
+**Windows (PowerShell):**
+```powershell
+# Criar diretório
+New-Item -ItemType Directory -Force -Path ".github/workflows"
+
+# Criar arquivo (copiar conteúdo YAML acima manualmente)
+notepad .github/workflows/ai-tests.yml
 ```
 
 > 💡 **Lembre-se:** Adicione `GEMINI_API_KEY` nos secrets do repositório!
