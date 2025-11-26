@@ -1,0 +1,25 @@
+2024-01-17 10:00:01 [INFO] Application started successfully
+2024-01-17 10:00:02 [INFO] Connected to database: postgres://localhost:5432/app
+2024-01-17 10:00:03 [INFO] Cache initialized: Redis connection established
+2024-01-17 10:00:15 [INFO] User login: user_id=123, ip=192.168.1.100
+2024-01-17 10:00:16 [INFO] Request processed: GET /api/users - 200 OK (45ms)
+2024-01-17 10:00:20 [WARN] Slow query detected: SELECT * FROM orders - 2.5s
+2024-01-17 10:00:25 [INFO] Request processed: POST /api/orders - 201 Created (120ms)
+2024-01-17 10:00:30 [ERROR] Database connection timeout after 30s
+2024-01-17 10:00:31 [ERROR] Failed to process request: Connection refused
+2024-01-17 10:00:32 [ERROR] Database connection timeout after 30s
+2024-01-17 10:00:33 [WARN] Retry attempt 1/3 for database connection
+2024-01-17 10:00:35 [ERROR] Database connection timeout after 30s
+2024-01-17 10:00:36 [WARN] Retry attempt 2/3 for database connection
+2024-01-17 10:00:38 [ERROR] Database connection timeout after 30s
+2024-01-17 10:00:39 [WARN] Retry attempt 3/3 for database connection
+2024-01-17 10:00:40 [CRITICAL] Database connection failed after 3 retries
+2024-01-17 10:00:41 [ERROR] Service degraded: switching to read-only mode
+2024-01-17 10:00:45 [INFO] Request processed: GET /api/health - 200 OK (5ms)
+2024-01-17 10:00:50 [WARN] Memory usage high: 85% of available memory
+2024-01-17 10:00:55 [WARN] Memory usage high: 88% of available memory
+2024-01-17 10:01:00 [ERROR] OutOfMemoryError: Java heap space
+2024-01-17 10:01:01 [CRITICAL] Application crash: restarting service
+2024-01-17 10:01:10 [INFO] Application restarted successfully
+2024-01-17 10:01:11 [INFO] Database connection restored
+2024-01-17 10:01:15 [INFO] Service fully operational

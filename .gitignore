@@ -56,7 +56,8 @@ htmlcov/
 # Logs e Relatórios
 # ====================================
 *.log
-logs/
+!*/logs/app.log
+!*/logs/*.example.log
 *.log.*
 test-selection.json
 pipeline-metrics.json
