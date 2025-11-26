@@ -1,0 +1,67 @@
+name: 🤖 AI Incident Response
+
+on:
+  workflow_dispatch:
+    inputs:
+      alert_file:
+        description: 'Arquivo de alerta'
+        required: true
+        default: 'alerts/high_memory.json'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  respond:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - run: pip install requests
+      
+      - name: 🤖 Executar resposta automática
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cd aula07-ia-incident
+          python incident_handler_ci.py ${{ inputs.alert_file }}
+      
+      - name: 📊 Gerar Sumário
+        if: always()
+        run: |
+          cd aula07-ia-incident
+          echo "## 🤖 AI Incident Response - Sumário" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚨 Alerta Processado:" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat ${{ inputs.alert_file }} >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Resultado do Incidente:" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat incident-result.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📜 Histórico:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -5 logs/incidents.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+      
+      - name: 📝 Criar issue com resultado
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('aula07-ia-incident/incident-result.json', 'utf8'));
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Incidente ${result.status}: ${result.incident_type}`,
+              body: `**Alerta:** ${result.alert_id}\n**Runbook:** ${result.runbook_executed}\n**Status:** ${result.status}`
+            })
