@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Logs (manter estrutura, ignorar conteúdo)
+logs/*.log
+
+# IDE
+.vscode/
+.idea/
