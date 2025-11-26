@@ -19,6 +19,15 @@ Pré-requisitos:
 import subprocess
 import requests
 import sys
+from pathlib import Path
+
+
+def get_available_tests() -> list:
+    """Retorna lista de arquivos de teste que existem."""
+    tests_dir = Path("tests")
+    if not tests_dir.exists():
+        return []
+    return [str(f) for f in tests_dir.glob("test_*.py")]
 
 
 def get_changed_files():
@@ -61,26 +70,30 @@ def ask_ollama(changed_files: str) -> str:
         Sugestão da IA sobre quais testes executar
     """
     
-    prompt = f"""Você é um assistente de CI/CD especializado em Python.
+    # Lista de testes disponíveis no projeto
+    available_tests = get_available_tests()
+    
+    prompt = f"""Analise os arquivos modificados e selecione APENAS os testes necessários.
 
-Arquivos modificados no último commit:
+ARQUIVOS MODIFICADOS:
 {changed_files}
 
-Baseado nos arquivos modificados, quais testes pytest devo executar?
+MAPEAMENTO EXATO:
+- src/calculadora.py → tests/test_calculadora.py
+- src/usuario.py → tests/test_usuario.py
+- Arquivos .md, .txt, .gitignore → NENHUM teste
+- Arquivos de configuração (select_tests.py, requirements.txt) → NENHUM teste
 
-Regras de mapeamento:
-- Se mudou src/calculadora.py → rodar tests/test_calculadora.py
-- Se mudou src/usuario.py → rodar tests/test_usuario.py  
-- Se mudou um arquivo em tests/ → rodar esse teste específico
-- Se mudou requirements.txt ou pyproject.toml → rodar todos os testes
+TESTES DISPONÍVEIS:
+{chr(10).join(available_tests)}
 
-Responda APENAS com os caminhos dos arquivos de teste, um por linha.
-Não inclua explicações, apenas os caminhos.
+INSTRUÇÕES:
+1. Analise APENAS arquivos em src/
+2. Ignore arquivos de configuração, documentação e scripts
+3. Responda SOMENTE com os caminhos dos testes necessários
+4. Se nenhum arquivo src/ foi modificado, responda: NENHUM
 
-Exemplo de resposta correta:
-tests/test_calculadora.py
-tests/test_usuario.py
-"""
+RESPOSTA (apenas caminhos, um por linha):"""
 
     try:
         response = requests.post(
@@ -109,6 +122,33 @@ tests/test_usuario.py
         sys.exit(1)
 
 
+def filter_valid_tests(suggestion: str) -> list:
+    """
+    Filtra a sugestão da IA para manter apenas arquivos de teste válidos.
+    Remove linhas que não são caminhos de arquivos existentes.
+    """
+    available = set(get_available_tests())
+    valid_tests = []
+    
+    for line in suggestion.split('\n'):
+        line = line.strip()
+        # Ignorar linhas vazias, comandos, ou explicações
+        if not line:
+            continue
+        if line.startswith('#') or line.startswith('-'):
+            continue
+        if 'pytest' in line.lower():
+            continue
+        if not line.endswith('.py'):
+            continue
+        
+        # Verificar se o arquivo existe
+        if line in available or Path(line).exists():
+            valid_tests.append(line)
+    
+    return list(set(valid_tests))  # Remove duplicatas
+
+
 def main():
     """Função principal."""
     print("=" * 50)
@@ -132,16 +172,24 @@ def main():
     print("\n🤖 Consultando Ollama...")
     suggestion = ask_ollama(changed_files)
     
-    # 3. Mostrar resultado
-    print(f"\n✅ Testes sugeridos pela IA:")
+    # 3. Filtrar apenas testes válidos
+    valid_tests = filter_valid_tests(suggestion)
+    
+    if not valid_tests:
+        print("\n⚠️  IA não sugeriu testes válidos. Rodando todos os testes.")
+        valid_tests = get_available_tests()
+    
+    # 4. Mostrar resultado
+    print(f"\n✅ Testes a executar:")
     print("-" * 30)
-    print(suggestion)
+    for test in valid_tests:
+        print(f"  {test}")
     print("-" * 30)
     
-    # 4. Comando para rodar
-    tests = " ".join(suggestion.split('\n'))
+    # 5. Comando para rodar
+    tests_str = " ".join(valid_tests)
     print(f"\n💡 Comando para executar:")
-    print(f"   pytest {tests} -v")
+    print(f"   pytest {tests_str} -v")
 
 
 if __name__ == "__main__":
