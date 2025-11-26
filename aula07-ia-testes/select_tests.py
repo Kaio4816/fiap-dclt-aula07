@@ -122,12 +122,35 @@ RESPOSTA (apenas caminhos, um por linha):"""
         sys.exit(1)
 
 
-def filter_valid_tests(suggestion: str) -> list:
+def get_tests_by_mapping(changed_files: str) -> list:
+    """
+    Mapeamento determinístico: arquivo fonte → arquivo de teste.
+    Usado como fallback ou validação da IA.
+    """
+    mapping = {
+        "src/calculadora.py": "tests/test_calculadora.py",
+        "src/usuario.py": "tests/test_usuario.py",
+    }
+    
+    tests = set()
+    for file in changed_files.split('\n'):
+        file = file.strip()
+        # Extrair apenas o caminho relativo ao projeto
+        for src, test in mapping.items():
+            if src in file:
+                if Path(test).exists():
+                    tests.add(test)
+    
+    return list(tests)
+
+
+def filter_valid_tests(suggestion: str, changed_files: str) -> list:
     """
     Filtra a sugestão da IA para manter apenas arquivos de teste válidos.
-    Remove linhas que não são caminhos de arquivos existentes.
+    Usa mapeamento determinístico para validar.
     """
     available = set(get_available_tests())
+    mapped_tests = set(get_tests_by_mapping(changed_files))
     valid_tests = []
     
     for line in suggestion.split('\n'):
@@ -137,16 +160,20 @@ def filter_valid_tests(suggestion: str) -> list:
             continue
         if line.startswith('#') or line.startswith('-'):
             continue
-        if 'pytest' in line.lower():
+        if 'pytest' in line.lower() or 'nenhum' in line.lower():
             continue
         if not line.endswith('.py'):
             continue
         
-        # Verificar se o arquivo existe
-        if line in available or Path(line).exists():
+        # Verificar se o arquivo existe E está no mapeamento esperado
+        if line in available and line in mapped_tests:
             valid_tests.append(line)
     
-    return list(set(valid_tests))  # Remove duplicatas
+    # Se IA não retornou nada válido, usar mapeamento direto
+    if not valid_tests and mapped_tests:
+        return list(mapped_tests)
+    
+    return list(set(valid_tests)) if valid_tests else list(mapped_tests)
 
 
 def main():
@@ -172,8 +199,8 @@ def main():
     print("\n🤖 Consultando Ollama...")
     suggestion = ask_ollama(changed_files)
     
-    # 3. Filtrar apenas testes válidos
-    valid_tests = filter_valid_tests(suggestion)
+    # 3. Filtrar apenas testes válidos (validado com mapeamento)
+    valid_tests = filter_valid_tests(suggestion, changed_files)
     
     if not valid_tests:
         print("\n⚠️  IA não sugeriu testes válidos. Rodando todos os testes.")

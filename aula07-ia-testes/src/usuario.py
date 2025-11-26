@@ -35,3 +35,5 @@ def validar_email(email: str) -> bool:
         True se válido, False caso contrário
     """
     return "@" in email and "." in email
+
+    #Nova Feature v2
