@@ -352,6 +352,10 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
@@ -383,18 +387,28 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
       
       - name: 🚨 Criar issue se crítico
-        if: failure()
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const analysis = JSON.parse(fs.readFileSync('aula07-ia-logs/log-analysis.json', 'utf8'));
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: '🚨 Problema crítico detectado nos logs',
-              body: `**Status:** ${analysis.status}\n**Problema:** ${analysis.main_issue}\n**Recomendação:** ${analysis.recommendation}`
-            })
+            try {
+              const analysis = JSON.parse(fs.readFileSync('aula07-ia-logs/log-analysis.json', 'utf8'));
+              if (analysis.status === 'critical') {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: '🚨 Problema crítico detectado nos logs',
+                  body: `**Status:** ${analysis.status}\n**Erros:** ${analysis.errors_found}\n**Problema:** ${analysis.main_issue}\n**Recomendação:** ${analysis.recommendation}`,
+                  labels: ['bug', 'critical']
+                });
+                console.log('Issue criada com sucesso!');
+              } else {
+                console.log('Status não é crítico, issue não criada.');
+              }
+            } catch (e) {
+              console.log('Arquivo não encontrado ou erro:', e.message);
+            }
 EOF
 ```
 
