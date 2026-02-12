@@ -32,3 +32,4 @@ def dividir(a: int, b: int) -> float:
         raise ValueError("Divisão por zero!")
     return a / b
 # Nova feature - FIAP v2
+# Teste Kaio
