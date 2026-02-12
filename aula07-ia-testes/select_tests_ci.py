@@ -2,7 +2,7 @@
 """
 🤖 Seletor de Testes com IA (versão CI/CD)
 
-Este script usa a API do Google Gemini (grátis) para analisar
+Este script usa a API do Google Gemini para analisar
 quais testes rodar no GitHub Actions.
 
 Uso:
@@ -76,14 +76,7 @@ def normalize_changed_files(changed_files: str) -> str:
 def ask_gemini(changed_files: str) -> str:
     """
     Consulta a API do Google Gemini para sugestão de testes.
-
-    Args:
-        changed_files: Lista de arquivos modificados
-
-    Returns:
-        Sugestão de testes da IA
     """
-
     api_key = os.environ.get("GEMINI_API_KEY")
 
     if not api_key:
@@ -112,7 +105,6 @@ Responda APENAS os caminhos dos arquivos de teste, um por linha, sem explicaçã
 
     try:
         response = requests.post(
-            # ✅ modelo 2.5 funcionando no seu caso
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
             headers={"Content-Type": "application/json"},
             json={
@@ -137,58 +129,68 @@ Responda APENAS os caminhos dos arquivos de teste, um por linha, sem explicaçã
         sys.exit(1)
 
 
-def to_repo_relative_test_path(line: str) -> str:
+def normalize_test_line(raw: str) -> list:
     """
-    Converte uma linha retornada pela IA em um path relativo ao diretório atual,
-    garantindo que comece em "tests/".
+    Normaliza uma linha da resposta da IA e retorna possíveis paths de testes.
 
-    Exemplos:
-    - "tests/test_calculadora.py" -> "tests/test_calculadora.py"
-    - "aula07-ia-testes/tests/test_calculadora.py" -> "tests/test_calculadora.py"
-    - "./tests/test_calculadora.py" -> "tests/test_calculadora.py"
+    Lida com:
+    - bullets: "- tests/...", "* tests/...", "• tests/..."
+    - crases/markdown: "`tests/...`"
+    - múltiplos paths separados por vírgula
+    - prefixos antes de "tests/" (ex: "aula07-ia-testes/tests/...")
     """
-    line = line.strip().lstrip("./")
+    line = raw.strip()
+    if not line:
+        return []
 
-    # Se vier com prefixo do cwd (ex: aula07-ia-testes/tests/...)
-    base = Path.cwd().name
-    prefix = f"{base}/"
-    if line.startswith(prefix):
-        line = line[len(prefix):]
+    # Remove bullets comuns
+    line = line.lstrip("-*• ").strip()
 
-    # Se ainda tiver "tests/" em algum lugar, corta do primeiro "tests/"
-    idx = line.find("tests/")
-    if idx != -1:
-        line = line[idx:]
+    # Remove crases de markdown
+    line = line.strip("`").strip()
 
-    return line
+    # Se tiver bloco markdown inline residual
+    line = line.replace("```", "").strip()
+
+    # Se vier "pytest tests/..." ou algo assim, remove palavra pytest
+    # (mas sem matar paths válidos)
+    line = line.replace("pytest ", "").strip()
+
+    # Suporta "a, b, c"
+    parts = [p.strip() for p in line.split(",") if p.strip()]
+    normalized = []
+
+    for part in parts:
+        # Se tiver prefixo antes de tests/, corta a partir do primeiro tests/
+        idx = part.find("tests/")
+        if idx == -1:
+            continue
+        part = part[idx:]
+
+        normalized.append(part)
+
+    return normalized
 
 
 def filter_valid_tests(suggestion: str) -> list:
     """
     Filtra a sugestão da IA para manter apenas arquivos de teste válidos.
 
-    ✅ Agora aceita respostas com prefixo (ex: aula07-ia-testes/tests/...)
+    ✅ Mais tolerante: aceita bullets, markdown, vírgulas e prefixos.
     """
     valid_tests = []
 
-    for raw in suggestion.split('\n'):
-        raw = raw.strip()
-        if not raw:
-            continue
+    for raw in suggestion.split("\n"):
+        for candidate in normalize_test_line(raw):
+            candidate = candidate.strip()
 
-        line = to_repo_relative_test_path(raw)
+            if not candidate.startswith("tests/"):
+                continue
+            if not candidate.endswith(".py"):
+                continue
 
-        # Ignorar linhas que não são testes
-        if not line.startswith('tests/'):
-            continue
-        if not line.endswith('.py'):
-            continue
-        if 'pytest' in line.lower():
-            continue
-
-        # Verificar se o arquivo existe (relativo ao cwd)
-        if Path(line).exists():
-            valid_tests.append(line)
+            if Path(candidate).exists():
+                valid_tests.append(candidate)
 
     return list(set(valid_tests))
 
@@ -228,7 +230,7 @@ def main():
         valid_tests = []
 
     # 4. Mostrar resultado
-    print(f"\n✅ Testes a executar:")
+    print("\n✅ Testes a executar:")
     for test in valid_tests:
         print(f"  {test}")
 
