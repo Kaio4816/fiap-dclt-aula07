@@ -2,12 +2,12 @@
 """
 🤖 Seletor de Testes com IA (versão CI/CD)
 
-Este script usa a API do Google Gemini para analisar
-quais testes rodar no GitHub Actions.
-
 Uso:
     export GEMINI_API_KEY="sua-chave-aqui"
     python select_tests_ci.py
+
+Debug no CI:
+    export DEBUG_AI=1
 """
 import subprocess
 import requests
@@ -16,19 +16,12 @@ import sys
 from pathlib import Path
 
 
-# ============================================================
-# CONFIGURAÇÃO: Escolha qual API usar
-# ============================================================
-
-USE_GEMINI = True  # Mude para False para usar Groq
+USE_GEMINI = True
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEBUG_AI = os.getenv("DEBUG_AI", "0") == "1"
 
 
 def get_changed_files() -> str:
-    """
-    Pega lista de arquivos modificados.
-
-    No CI, compara com o commit anterior (HEAD~1).
-    """
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", "HEAD~1"],
@@ -41,52 +34,56 @@ def get_changed_files() -> str:
             return files
     except subprocess.CalledProcessError:
         pass
-
-    return "Nenhum arquivo modificado"
+    return ""
 
 
 def normalize_changed_files(changed_files: str) -> str:
-    """
-    Normaliza paths vindos do git diff para o contexto do diretório atual.
-
-    Exemplo: se você executa o script dentro de "aula07-ia-testes",
-    o git diff pode retornar:
-        aula07-ia-testes/src/calculadora.py
-    e aqui transformamos em:
-        src/calculadora.py
-    """
-    base = Path.cwd().name  # ex: "aula07-ia-testes"
+    base = Path.cwd().name  # ex: aula07-ia-testes
+    prefix = f"{base}/"
     normalized = []
 
     for line in changed_files.splitlines():
         line = line.strip()
         if not line:
             continue
-
-        # Remove prefixo "<pasta_atual>/" se existir
-        prefix = f"{base}/"
         if line.startswith(prefix):
             line = line[len(prefix):]
-
         normalized.append(line)
 
-    return "\n".join(normalized) if normalized else "Nenhum arquivo modificado"
+    return "\n".join(normalized)
+
+
+def deterministic_tests(changed_files: str) -> list:
+    """
+    Regras fixas (não dependem de IA).
+    """
+    mapping = {
+        "src/calculadora.py": "tests/test_calculadora.py",
+        "src/usuario.py": "tests/test_usuario.py",
+    }
+
+    tests = set()
+
+    for f in changed_files.splitlines():
+        f = f.strip()
+        if not f:
+            continue
+
+        # Se alterou um teste, roda ele mesmo
+        if f.startswith("tests/") and f.endswith(".py") and Path(f).exists():
+            tests.add(f)
+
+        # Se alterou src, roda o teste mapeado
+        if f in mapping and Path(mapping[f]).exists():
+            tests.add(mapping[f])
+
+    return sorted(tests)
 
 
 def ask_gemini(changed_files: str) -> str:
-    """
-    Consulta a API do Google Gemini para sugestão de testes.
-    """
     api_key = os.environ.get("GEMINI_API_KEY")
-
     if not api_key:
         print("❌ Erro: GEMINI_API_KEY não está configurada!")
-        print("")
-        print("Para configurar:")
-        print("  1. Acesse https://aistudio.google.com/apikey")
-        print("  2. Clique em 'Create API Key'")
-        print("  3. export GEMINI_API_KEY='sua-chave'")
-        print("")
         sys.exit(1)
 
     prompt = f"""Você é um assistente de CI/CD.
@@ -101,102 +98,63 @@ Regras:
 - src/usuario.py → tests/test_usuario.py
 - tests/*.py → o próprio arquivo
 
-Responda APENAS os caminhos dos arquivos de teste, um por linha, sem explicação."""
+Responda APENAS os caminhos dos arquivos de teste, um por linha, sem explicação.
+Não use bullets, não use markdown, não use texto extra.
+Exemplo de resposta válida:
+tests/test_calculadora.py
+tests/test_usuario.py
+"""
 
-    try:
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-            headers={"Content-Type": "application/json"},
-            json={
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "maxOutputTokens": 200
-                }
-            },
-            timeout=30
-        )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
 
-        response.raise_for_status()
-        data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    response = requests.post(
+        url,
+        headers={"Content-Type": "application/json"},
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 200}
+        },
+        timeout=30
+    )
 
-    except requests.exceptions.HTTPError as e:
-        print(f"❌ Erro na API Gemini: {e}")
-        print(f"   Response: {response.text}")
-        sys.exit(1)
+    if DEBUG_AI:
+        print("\n🧾 DEBUG: status Gemini:", response.status_code)
+        # NÃO imprime a URL (pra não vazar key)
+        print("🧾 DEBUG: response text (raw):")
+        print(response.text)
+
+    response.raise_for_status()
+    data = response.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
-def normalize_test_line(raw: str) -> list:
+def extract_tests_from_text(text: str) -> list:
     """
-    Normaliza uma linha da resposta da IA e retorna possíveis paths de testes.
-
-    Lida com:
-    - bullets: "- tests/...", "* tests/...", "• tests/..."
-    - crases/markdown: "`tests/...`"
-    - múltiplos paths separados por vírgula
-    - prefixos antes de "tests/" (ex: "aula07-ia-testes/tests/...")
+    Extrai qualquer ocorrência de tests/*.py mesmo que venha com lixo junto.
     """
-    line = raw.strip()
-    if not line:
-        return []
+    found = set()
 
-    # Remove bullets comuns
-    line = line.lstrip("-*• ").strip()
+    # pega tokens “quebrando” por whitespace e pontuação comum
+    separators = ["\n", "\t", " ", ",", ";", ":", "|"]
+    tokens = [text]
+    for sep in separators:
+        new_tokens = []
+        for t in tokens:
+            new_tokens.extend(t.split(sep))
+        tokens = new_tokens
 
-    # Remove crases de markdown
-    line = line.strip("`").strip()
+    for tok in tokens:
+        tok = tok.strip().strip("`").strip('"').strip("'").strip().lstrip("-*•").strip()
+        if "tests/" in tok:
+            idx = tok.find("tests/")
+            tok = tok[idx:]
+        if tok.startswith("tests/") and tok.endswith(".py") and Path(tok).exists():
+            found.add(tok)
 
-    # Se tiver bloco markdown inline residual
-    line = line.replace("```", "").strip()
-
-    # Se vier "pytest tests/..." ou algo assim, remove palavra pytest
-    # (mas sem matar paths válidos)
-    line = line.replace("pytest ", "").strip()
-
-    # Suporta "a, b, c"
-    parts = [p.strip() for p in line.split(",") if p.strip()]
-    normalized = []
-
-    for part in parts:
-        # Se tiver prefixo antes de tests/, corta a partir do primeiro tests/
-        idx = part.find("tests/")
-        if idx == -1:
-            continue
-        part = part[idx:]
-
-        normalized.append(part)
-
-    return normalized
-
-
-def filter_valid_tests(suggestion: str) -> list:
-    """
-    Filtra a sugestão da IA para manter apenas arquivos de teste válidos.
-
-    ✅ Mais tolerante: aceita bullets, markdown, vírgulas e prefixos.
-    """
-    valid_tests = []
-
-    for raw in suggestion.split("\n"):
-        for candidate in normalize_test_line(raw):
-            candidate = candidate.strip()
-
-            if not candidate.startswith("tests/"):
-                continue
-            if not candidate.endswith(".py"):
-                continue
-
-            if Path(candidate).exists():
-                valid_tests.append(candidate)
-
-    return list(set(valid_tests))
+    return sorted(found)
 
 
 def main():
-    """Função principal para CI."""
     api_name = "Gemini" if USE_GEMINI else "Groq"
 
     print("=" * 50)
@@ -204,37 +162,37 @@ def main():
     print("=" * 50)
     print("")
 
-    # 1. Pegar arquivos modificados
     print("🔍 Analisando mudanças...")
     changed_files = get_changed_files()
-
-    # ✅ normaliza para casar com as regras do prompt
     changed_files = normalize_changed_files(changed_files)
 
-    print(f"📝 Modificados: {changed_files}")
-
-    # 2. Consultar IA
-    print(f"\n🤖 Consultando {api_name} API...")
-
-    if USE_GEMINI:
-        suggestion = ask_gemini(changed_files)
+    if not changed_files.strip():
+        print("📝 Modificados: Nenhum arquivo modificado")
+        changed_files = ""
     else:
-        print("❌ Groq não está habilitado. Descomente a função ask_groq.")
-        sys.exit(1)
+        print(f"📝 Modificados: {changed_files}")
 
-    # 3. Filtrar apenas testes válidos
-    valid_tests = filter_valid_tests(suggestion)
+    # 1) Primeiro: determinístico (garante que sempre funcione)
+    valid_tests = deterministic_tests(changed_files)
+
+    # 2) IA como complemento (se quiser), mas não quebra pipeline
+    print(f"\n🤖 Consultando {api_name} API...")
+    try:
+        suggestion = ask_gemini(changed_files if changed_files else "Nenhum arquivo modificado")
+        ai_tests = extract_tests_from_text(suggestion)
+        valid_tests = sorted(set(valid_tests) | set(ai_tests))
+    except Exception as e:
+        # Falhou IA? segue com determinístico.
+        print(f"⚠️  IA falhou ({e}). Seguindo com seleção determinística.")
 
     if not valid_tests:
         print("\n⚠️  Nenhum teste válido sugerido.")
         valid_tests = []
 
-    # 4. Mostrar resultado
     print("\n✅ Testes a executar:")
     for test in valid_tests:
         print(f"  {test}")
 
-    # 5. Salvar para uso no workflow
     with open("suggested_tests.txt", "w") as f:
         f.write("\n".join(valid_tests))
 
